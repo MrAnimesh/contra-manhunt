@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sector 04 — Tactical Platformer</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+  body { background: #0c1216; color: #dbe3df; font-family: Arial, sans-serif; }
+  main { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; background: #18252b; outline: none; }
+  canvas:focus-visible { outline: 2px solid #c6fa72; outline-offset: -2px; }
+  .controls { position: absolute; bottom: 0; left: 0; right: 0; display: flex;
+    flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 24px;
+    padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+    background: #0c151de8; color: #a7b4ad; font-size: 12px; }
+  kbd { color: #e6eddf; font: 11px monospace; border: 1px solid #46524b; border-radius: 3px; padding: 3px 5px; }
+  button { background: transparent; color: #b7dc73; border: 0; cursor: pointer; font: inherit; padding: 4px; }
+  @media (max-width: 600px) {
+    .controls { gap: 10px 14px; font-size: 11px; }
+    .terrain-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <canvas id="game" width="800" height="600" tabindex="0" aria-label="Side-scrolling platformer. A or D to run, W or Space to jump, S to drop through a thin platform.">Your browser needs HTML5 Canvas to play.</canvas>
+  <div class="controls"><span><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Move</span><span><kbd>W</kbd> / <kbd>Space</kbd> Jump</span><span><kbd>S</kbd> Drop through</span><span><kbd>R</kbd> Reset</span><span class="terrain-hint">Cyan pads launch · Stomp barrels / crates</span><button id="reset">↺ RESET</button></div>
+</main>
+<script type="module">
+// Native ES modules need an HTTP server; no build step or dependencies are used.
+import { world, platforms, drawMap, resetMap } from './src/map.js';
+import { updatePlayer, updateCamera } from './src/physics.js';
+import { particles, updateAndDrawParticles } from './src/particles.js';
+
+const canvas = document.getElementById('game');
+const context = canvas.getContext('2d');
+const camera = { x: 0, y: 400, width: 800, height: 600 };
+const player = { x: 300, y: 910, width: 24, height: 40, vx: 0, vy: 0, standingOn: null, ignoredPlatform: null };
+const input = {};
+
+function resizeCanvas() {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  const pixelRatio = window.devicePixelRatio || 1;
+  // Zoom only when needed to keep even very large viewports inside the world.
+  const scale = Math.max(1, width / world.width, height / world.height);
+  camera.width = width / scale;
+  camera.height = height / scale;
+  // Match the backing bitmap to the display density for sharp canvas graphics.
+  canvas.width = Math.round(width * pixelRatio);
+  canvas.height = Math.round(height * pixelRatio);
+  context.setTransform(pixelRatio * scale, 0, 0, pixelRatio * scale, 0, 0);
+  centerCamera();
+}
+
+function centerCamera() {
+  // Snap after resize or reset; normal movement still follows smoothly.
+  camera.x = Math.max(0, Math.min(world.width - camera.width,
+    player.x + player.width / 2 - camera.width / 2));
+  camera.y = Math.max(0, Math.min(world.height - camera.height,
+    player.y + player.height / 2 - camera.height / 2));
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+function resetPlayer() {
+  player.x = 300;
+  player.y = 910;
+  player.vx = 0;
+  player.vy = 0;
+  player.standingOn = null;
+  player.ignoredPlatform = null;
+  resetMap();
+  particles.length = 0;
+  centerCamera();
+  input.jumpRequested = false;
+  input.dropRequested = false;
+}
+
+// Prevent browser scrolling only for game controls, and ignore key repeat actions.
+window.addEventListener('keydown', function (event) {
+  const controls = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyW', 'Space', 'KeyS', 'KeyR'];
+  if (!controls.includes(event.code)) return;
+  if (event.target.tagName === 'BUTTON') return;
+  event.preventDefault();
+  input[event.code] = true;
+  if (event.repeat) return;
+  if (event.code === 'KeyW' || event.code === 'Space') input.jumpRequested = true;
+  if (event.code === 'KeyS') input.dropRequested = true;
+  if (event.code === 'KeyR') resetPlayer();
+});
+window.addEventListener('keyup', function (event) { input[event.code] = false; });
+window.addEventListener('blur', function () {
+  for (const key in input) input[key] = false;
+  input.jumpRequested = false;
+  input.dropRequested = false;
+});
+document.getElementById('reset').addEventListener('click', function () {
+  resetPlayer();
+  canvas.focus();
+});
+
+function drawHud() {
+  let zone = '01 / THE OUTPOST';
+  if (player.x >= 800) zone = '02—03 / THE BRIDGE & TUNNEL';
+  if (player.x >= 2400) zone = '04 / THE WAREHOUSE';
+  context.fillStyle = '#0c151de8';
+  context.fillRect(0, 0, camera.width, 48);
+  context.font = 'bold 12px monospace';
+  context.fillStyle = '#c6fa72';
+  context.fillText(zone, 20, 29);
+  context.fillStyle = '#9aafa8';
+  context.font = '11px monospace';
+  // Hide coordinates when the zone title needs the available width.
+  if (camera.width > 500) {
+    context.fillText('X ' + Math.round(player.x) + ' / Y ' + Math.round(player.y), camera.width - 160, 29);
+  }
+
+  // The overview shows all platforms plus the camera viewport and player marker.
+  // Keep the overview above the controls as the window changes size.
+  const controlsHeight = document.querySelector('.controls').getBoundingClientRect().height;
+  const displayScale = canvas.clientHeight / camera.height;
+  const map = { x: 20, y: camera.height - controlsHeight / displayScale - 92, scale: 0.075 };
+  if (map.y < 60 || camera.width < 280) return;
+  context.fillStyle = '#0c151de8';
+  context.fillRect(map.x - 8, map.y - 8, 256, 91);
+  for (const platform of platforms) {
+    context.fillStyle = platform.color;
+    context.fillRect(map.x + platform.x * map.scale, map.y + platform.y * map.scale,
+      platform.width * map.scale, Math.max(1, platform.height * map.scale));
+  }
+  context.strokeStyle = '#b3c5b685';
+  context.lineWidth = 1;
+  context.strokeRect(map.x + camera.x * map.scale, map.y + camera.y * map.scale, camera.width * map.scale, camera.height * map.scale);
+  context.fillStyle = '#c6fa72';
+  context.fillRect(map.x + player.x * map.scale - 2, map.y + player.y * map.scale - 2, 4, 4);
+}
+
+function draw(elapsed) {
+  context.fillStyle = '#18252b';
+  context.fillRect(0, 0, camera.width, camera.height);
+  drawMap(context, camera);
+  context.save();
+  // Translate the scene once; every platform retains its original world position.
+  context.translate(-camera.x, -camera.y);
+  context.shadowColor = '#c6fa72';
+  context.shadowBlur = 12;
+  context.fillStyle = '#c6fa72';
+  context.fillRect(player.x, player.y, player.width, player.height);
+  context.shadowBlur = 0;
+  context.restore();
+  updateAndDrawParticles(context, camera, elapsed);
+  drawHud();
+}
+
+// Fixed 120 Hz physics keeps collision steps small, even on slower displays.
+const fixedStep = 1 / 120;
+let accumulator = 0;
+let previousTime = null;
+function frame(time) {
+  if (previousTime === null) previousTime = time;
+  // Limit catch-up after background tabs so returning cannot launch the player.
+  const elapsed = Math.min((time - previousTime) / 1000, 0.1);
+  previousTime = time;
+  accumulator += elapsed;
+  while (accumulator >= fixedStep) {
+    updatePlayer(player, input, fixedStep);
+    updateCamera(camera, player, fixedStep);
+    accumulator -= fixedStep;
+  }
+  draw(elapsed);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
