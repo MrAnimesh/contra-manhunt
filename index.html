@@ -8,7 +8,23 @@
   * { box-sizing: border-box; }
   html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
   body { background: #0c1216; color: #dbe3df; font-family: Arial, sans-serif; }
-  main { position: fixed; inset: 0; }
+  /* A narrow metal frame surrounds the full-window play area. */
+  main { display: grid; place-items: center; position: fixed; inset: 10px; border: 1px solid #52695d;
+    border-radius: 6px; overflow: hidden;
+    box-shadow: 0 0 0 4px #17231e, 0 0 0 5px #293b31, 0 0 24px #0008; }
+  /* Corner brackets sit above the canvas without intercepting clicks. */
+  main::after { content: ''; position: absolute; inset: 0; z-index: 2;
+    pointer-events: none; border-radius: 5px;
+    background:
+      linear-gradient(#b7dc73, #b7dc73) left top / 26px 2px,
+      linear-gradient(#b7dc73, #b7dc73) left top / 2px 26px,
+      linear-gradient(#b7dc73, #b7dc73) right top / 26px 2px,
+      linear-gradient(#b7dc73, #b7dc73) right top / 2px 26px,
+      linear-gradient(#b7dc73, #b7dc73) left bottom / 26px 2px,
+      linear-gradient(#b7dc73, #b7dc73) left bottom / 2px 26px,
+      linear-gradient(#b7dc73, #b7dc73) right bottom / 26px 2px,
+      linear-gradient(#b7dc73, #b7dc73) right bottom / 2px 26px;
+    background-repeat: no-repeat; }
   canvas { display: block; width: 100%; height: 100%; background: #18252b; outline: none; }
   canvas:focus-visible { outline: 2px solid #c6fa72; outline-offset: -2px; }
   .controls { position: absolute; bottom: 0; left: 0; right: 0; display: flex;
@@ -18,6 +34,7 @@
   kbd { color: #e6eddf; font: 11px monospace; border: 1px solid #46524b; border-radius: 3px; padding: 3px 5px; }
   button { background: transparent; color: #b7dc73; border: 0; cursor: pointer; font: inherit; padding: 4px; }
   @media (max-width: 600px) {
+    main { inset: 6px; }
     .controls { gap: 10px 14px; font-size: 11px; }
     .terrain-hint { display: none; }
   }
@@ -26,32 +43,30 @@
 <body>
 <main>
   <canvas id="game" width="800" height="600" tabindex="0" aria-label="Side-scrolling platformer. A or D to run, W or Space to jump, S to drop through a thin platform.">Your browser needs HTML5 Canvas to play.</canvas>
-  <div class="controls"><span><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Move</span><span><kbd>W</kbd> / <kbd>Space</kbd> Jump</span><span><kbd>S</kbd> Drop through</span><span><kbd>R</kbd> Reset</span><span class="terrain-hint">Cyan pads launch · Stomp barrels / crates</span><button id="reset">↺ RESET</button></div>
+  <div class="controls"><span><kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd> Move</span><span><kbd>W</kbd> / <kbd>Space</kbd> Jump</span><span><kbd>S</kbd> Drop through</span><span><kbd>R</kbd> Reset</span><span class="terrain-hint">Yellow pads launch · Stomp barrels / crates</span><button id="reset">↺ RESET</button></div>
 </main>
 <script type="module">
 // Native ES modules need an HTTP server; no build step or dependencies are used.
-import { world, platforms, drawMap, resetMap } from './src/map.js';
+import { world, zones, platforms, drawMap, resetMap } from './src/map.js';
 import { updatePlayer, updateCamera } from './src/physics.js';
 import { particles, updateAndDrawParticles } from './src/particles.js';
 
 const canvas = document.getElementById('game');
 const context = canvas.getContext('2d');
-const camera = { x: 0, y: 400, width: 800, height: 600 };
-const player = { x: 300, y: 910, width: 24, height: 40, vx: 0, vy: 0, standingOn: null, ignoredPlatform: null };
+const camera = { x: 0, y: 600, width: 800, height: 600 };
+const player = { x: 300, y: 1110, width: 24, height: 40, vx: 0, vy: 0, standingOn: null, ignoredPlatform: null };
 const input = {};
 
 function resizeCanvas() {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
+  const container = canvas.parentElement;
   const pixelRatio = window.devicePixelRatio || 1;
-  // Zoom only when needed to keep even very large viewports inside the world.
-  const scale = Math.max(1, width / world.width, height / world.height);
-  camera.width = width / scale;
-  camera.height = height / scale;
-  // Match the backing bitmap to the display density for sharp canvas graphics.
-  canvas.width = Math.round(width * pixelRatio);
-  canvas.height = Math.round(height * pixelRatio);
-  context.setTransform(pixelRatio * scale, 0, 0, pixelRatio * scale, 0, 0);
+  // Fit the 800 × 600 logical viewport inside the fullscreen border, without stretching.
+  const scale = Math.min(container.clientWidth / camera.width, container.clientHeight / camera.height);
+  canvas.style.width = camera.width * scale + 'px';
+  canvas.style.height = camera.height * scale + 'px';
+  canvas.width = Math.round(camera.width * scale * pixelRatio);
+  canvas.height = Math.round(camera.height * scale * pixelRatio);
+  context.setTransform(canvas.width / camera.width, 0, 0, canvas.height / camera.height, 0, 0);
   centerCamera();
 }
 
@@ -67,7 +82,7 @@ resizeCanvas();
 
 function resetPlayer() {
   player.x = 300;
-  player.y = 910;
+  player.y = 1110;
   player.vx = 0;
   player.vy = 0;
   player.standingOn = null;
@@ -103,9 +118,10 @@ document.getElementById('reset').addEventListener('click', function () {
 });
 
 function drawHud() {
-  let zone = '01 / THE OUTPOST';
-  if (player.x >= 800) zone = '02—03 / THE BRIDGE & TUNNEL';
-  if (player.x >= 2400) zone = '04 / THE WAREHOUSE';
+  let zone = zones[0].name;
+  for (const area of zones) {
+    if (player.x >= area.x) zone = area.name;
+  }
   context.fillStyle = '#0c151de8';
   context.fillRect(0, 0, camera.width, 48);
   context.font = 'bold 12px monospace';
@@ -122,10 +138,10 @@ function drawHud() {
   // Keep the overview above the controls as the window changes size.
   const controlsHeight = document.querySelector('.controls').getBoundingClientRect().height;
   const displayScale = canvas.clientHeight / camera.height;
-  const map = { x: 20, y: camera.height - controlsHeight / displayScale - 92, scale: 0.075 };
+  const map = { x: 20, y: camera.height - controlsHeight / displayScale - 92, scale: 240 / world.width };
   if (map.y < 60 || camera.width < 280) return;
   context.fillStyle = '#0c151de8';
-  context.fillRect(map.x - 8, map.y - 8, 256, 91);
+  context.fillRect(map.x - 8, map.y - 8, 256, world.height * map.scale + 16);
   for (const platform of platforms) {
     context.fillStyle = platform.color;
     context.fillRect(map.x + platform.x * map.scale, map.y + platform.y * map.scale,
