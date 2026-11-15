@@ -197,9 +197,97 @@ function drawBackground(ctx, camera) {
   ctx.restore();
 }
 
-function drawWatchTowers(ctx) {
+function drawLamp(ctx, x, y, brightness) {
+  ctx.save();
+  // A soft pool of light fades below the metal lamp housing.
+  const glow = ctx.createRadialGradient(x, y + 10, 2, x, y + 10, 68);
+  glow.addColorStop(0, 'rgba(255, 220, 151, ' + brightness * 0.2 + ')');
+  glow.addColorStop(1, 'rgba(255, 220, 151, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(x - 68, y - 58, 136, 136);
+  ctx.fillStyle = '#1a252c';
+  ctx.fillRect(x - 12, y - 4, 24, 7);
+  ctx.fillStyle = '#f1d8a2';
+  ctx.fillRect(x - 8, y + 3, 16, 3);
+  ctx.restore();
+}
+
+function drawSearchlight(ctx, x, y, time) {
+  // The motor sweeps slowly across the runway; time is measured in seconds.
+  const angle = Math.PI / 2 + Math.sin(time * 0.35) * 0.95;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  const beam = ctx.createLinearGradient(0, 0, 1100, 0);
+  beam.addColorStop(0, 'rgba(236, 239, 191, 0.22)');
+  beam.addColorStop(0.45, 'rgba(236, 239, 191, 0.07)');
+  beam.addColorStop(1, 'rgba(236, 239, 191, 0)');
+  ctx.fillStyle = beam;
+  ctx.beginPath();
+  ctx.moveTo(10, -5);
+  ctx.lineTo(1100, -150);
+  ctx.lineTo(1100, 150);
+  ctx.lineTo(10, 5);
+  ctx.closePath();
+  ctx.fill();
+  // Lamp head rotates with its beam; the roof mount stays fixed.
+  ctx.fillStyle = '#526975';
+  ctx.fillRect(-16, -10, 28, 20);
+  ctx.fillStyle = '#f0edc6';
+  ctx.fillRect(10, -8, 4, 16);
+  ctx.restore();
+  line(ctx, x, y + 4, x, y + 15, '#93a8af', 5);
+}
+
+function drawRadar(ctx, x, y, time) {
+  line(ctx, x, y, x, y - 28, '#8097a2', 5);
+  // Project a rotating dish into a changing ellipse for a simple sense of depth.
+  const dishWidth = 5 + Math.abs(Math.cos(time * 0.8)) * 27;
+  ctx.fillStyle = '#435e6a';
+  ctx.strokeStyle = '#a6bec5';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(x, y - 35, dishWidth, 15, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  line(ctx, x - dishWidth, y - 35, x + dishWidth, y - 35, '#809ba6', 1);
+  line(ctx, x, y - 49, x, y - 20, '#809ba6', 1);
+  const receiverX = x + Math.sin(time * 0.8) * 36;
+  line(ctx, x, y - 35, receiverX, y - 39, '#c2d0cf', 2);
+}
+
+function drawFlag(ctx, x, y, time) {
+  line(ctx, x, y - 12, x, y + 75, '#9aaeb4', 2);
+  ctx.fillStyle = '#809576';
+  ctx.beginPath();
+  // Pin the cloth at the pole; increase the wave toward its free end.
+  for (let i = 0; i <= 12; i++) {
+    const wave = Math.sin(time * 3 - i * 0.5) * i * 0.45;
+    const flagX = x + i * 4;
+    if (i === 0) ctx.moveTo(flagX, y + wave);
+    else ctx.lineTo(flagX, y + wave);
+  }
+  for (let i = 12; i >= 0; i--) {
+    const wave = Math.sin(time * 3 - i * 0.5) * i * 0.45;
+    ctx.lineTo(x + i * 4, y + 24 + wave);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawWatchTowers(ctx, camera, time) {
   for (const tower of watchTowers) {
+    // Include the searchlight reach when skipping towers outside the camera.
+    const bounds = { x: tower.x - 1100, y: tower.y - 240, width: 2620, height: 1140 };
+    if (!isVisible(bounds, camera)) continue;
     const ground = tower.y + tower.height;
+    const phase = time + tower.x / 300;
+    drawSearchlight(ctx, tower.x + 350, tower.y - 145, phase);
+    // Concrete footings and dark interior panels anchor the steel structure.
+    ctx.fillStyle = '#182830';
+    ctx.fillRect(tower.x + 24, tower.y - 118, tower.width - 48, 118);
+    ctx.fillStyle = '#263a45';
+    ctx.fillRect(tower.x + 24, tower.y - 116, tower.width - 88, 15);
     // Slim columns, footings, and cross bracing give the structure depth.
     for (const x of [tower.x + 8, tower.x + tower.width - 20]) {
       ctx.fillStyle = '#34454f';
@@ -233,6 +321,17 @@ function drawWatchTowers(ctx) {
       ctx.fillStyle = '#d6e3de';
       ctx.font = '11px monospace';
       ctx.fillText('0' + (floor + 1), tower.x + 12, top + 32);
+      // Warm utility lamps illuminate each stair landing.
+      drawLamp(ctx, tower.x + 38, top + 18, 0.65 + Math.sin(phase * 0.7) * 0.04);
+      ctx.fillStyle = '#d3b263';
+      for (let stripe = 0; stripe < 5; stripe++) {
+        ctx.fillRect(tower.x + 168 + stripe * 18, top + 17, 9, 4);
+      }
+      ctx.fillStyle = '#17242a';
+      ctx.fillRect(tower.x + 320, top + 18, 62, 22);
+      ctx.fillStyle = '#bbcec7';
+      ctx.font = '9px monospace';
+      ctx.fillText('LEVEL 0' + (floor + 1), tower.x + 326, top + 32);
     }
     // A tinted panoramic cabin crowns the top floor, with an open side doorway.
     ctx.fillStyle = '#73b8c32b';
@@ -241,27 +340,48 @@ function drawWatchTowers(ctx) {
       line(ctx, x, tower.y - 116, x, tower.y - 12, '#92aeb5', 3);
       line(ctx, x + 8, tower.y - 100, x + 40, tower.y - 72, '#bce2e133', 2);
     }
+    // A lit console and sweeping screen make the lookout feel staffed and operational.
     ctx.fillStyle = '#24363e';
     ctx.fillRect(tower.x + 140, tower.y - 32, 120, 20);
+    ctx.fillStyle = '#0e2827';
+    ctx.fillRect(tower.x + 148, tower.y - 55, 48, 24);
+    ctx.strokeStyle = '#608e83';
+    ctx.strokeRect(tower.x + 148, tower.y - 55, 48, 24);
+    const scanX = tower.x + 150 + (phase * 14 % 44);
+    line(ctx, scanX, tower.y - 53, scanX, tower.y - 33, '#8ce3b8', 2);
+    ctx.fillStyle = '#b2d5c4';
+    ctx.fillRect(tower.x + 170, tower.y - 45, 3, 3);
+    ctx.fillRect(tower.x + 184, tower.y - 39, 2, 2);
     ctx.fillStyle = '#87d5bc';
     ctx.fillRect(tower.x + 154, tower.y - 26, 30, 6);
     ctx.fillStyle = '#d7e1d6';
     ctx.font = 'bold 12px monospace';
-    ctx.fillText(tower.name, tower.x + 145, tower.y - 142);
+    ctx.fillStyle = '#1a2a32';
+    ctx.fillRect(tower.x + 112, tower.y - 128, 185, 26);
+    ctx.fillStyle = '#d7e1d6';
+    ctx.fillText(tower.name + ' / OPS', tower.x + 126, tower.y - 110);
     // Antenna and beacon add a clear silhouette against the open airspace.
     line(ctx, tower.x + 70, tower.y - 130, tower.x + 70, tower.y - 205, '#8ea4ad', 3);
     line(ctx, tower.x + 48, tower.y - 182, tower.x + 92, tower.y - 182, '#8ea4ad', 2);
-    ctx.fillStyle = '#f08d66';
+    // A slow beacon pulse avoids harsh flashing.
+    const beacon = 0.2 + 0.8 * Math.pow((Math.sin(phase * 2) + 1) / 2, 4);
+    ctx.save();
+    ctx.shadowColor = '#ff7855';
+    ctx.shadowBlur = 8 + beacon * 18;
+    ctx.fillStyle = 'rgba(255, 128, 85, ' + beacon + ')';
     ctx.fillRect(tower.x + 66, tower.y - 210, 8, 5);
+    ctx.restore();
+    drawRadar(ctx, tower.x + 220, tower.y - 146, phase);
+    drawFlag(ctx, tower.x + 20, tower.y - 205, phase);
   }
 }
 
-export function drawMap(ctx, camera) {
+export function drawMap(ctx, camera, time = performance.now() / 1000) {
   ctx.save();
   // All assets use world coordinates; translate once for the camera.
   ctx.translate(-camera.x, -camera.y);
   drawBackground(ctx, camera);
-  drawWatchTowers(ctx);
+  drawWatchTowers(ctx, camera, time);
   for (const platform of platforms) {
     if (!isVisible(platform, camera)) continue;
     ctx.fillStyle = platform.color;

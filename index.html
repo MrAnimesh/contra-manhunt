@@ -158,10 +158,14 @@ function drawHud() {
   context.fillRect(map.x + player.x * map.scale - 2, map.y + player.y * map.scale - 2, 4, 4);
 }
 
+let animationTime = 0;
+
 function draw(elapsed) {
+  // Advance visual motion with elapsed seconds, independent of display refresh rate.
+  animationTime += elapsed;
   context.fillStyle = '#18252b';
   context.fillRect(0, 0, camera.width, camera.height);
-  drawMap(context, camera);
+  drawMap(context, camera, animationTime);
   context.save();
   // Translate the scene once; every platform retains its original world position.
   context.translate(-camera.x, -camera.y);
