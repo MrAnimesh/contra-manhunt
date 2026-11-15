@@ -1,4 +1,6 @@
-export const world = { width: 8000, height: 1200 };
+export const world = { width: 8000, height: 2400 };
+// Keep the original terrain layout below an extra 1200px of open airspace.
+const terrainOffsetY = world.height - 1200;
 export const platforms = [];
 export const jumpPads = [];
 export const explosiveBarrels = [];
@@ -17,21 +19,14 @@ function addPlatform(x, y, width, height, type, color) {
 }
 
 // One continuous floor leaves a deep but traversable valley below the bridge.
-addPlatform(0, 1150, world.width, world.height - 1150, 'solid', '#353c41');
+addPlatform(0, 1150, world.width, 50, 'solid', '#353c41');
 
-// Airbase: low landing decks separated by broad, open runway sections.
-for (let i = 0; i < 4; i++) {
-  addPlatform(440 + i * 320, 1050, 200, 20, 'solid', '#7c8d96');
-}
-for (let i = 0; i < 10; i++) {
-  let x = 100 + i * 145;
+// Airbase: leave open runway between the two watchtowers.
+addPlatform(620, 1050, 340, 20, 'solid', '#7c8d96');
+const cratePositions = [40, 600, 680, 760, 840, 920, 1000, 1480, 1520, 1560];
+for (const x of cratePositions) {
   let floorY = 1150;
-  // Rest crates on a deck when their full footprint fits above it.
-  for (const platform of platforms) {
-    if (platform.y === 1050 && x >= platform.x && x + 32 <= platform.x + platform.width) {
-      floorY = platform.y;
-    }
-  }
+  if (x >= 620 && x + 32 <= 960) floorY = 1050;
   supplyCrates.push({ x, y: floorY - 32, width: 32, height: 32, isBroken: false });
 }
 
@@ -93,6 +88,31 @@ for (let i = 0; i < 3; i++) {
   }
 }
 
+// Move terrain and interactable objects together so every object stays supported.
+for (const assets of [platforms, jumpPads, explosiveBarrels, supplyCrates]) {
+  for (const asset of assets) asset.y += terrainOffsetY;
+}
+
+// Three 300px stories use alternating stair flights, like a real steel tower.
+export const watchTowers = [
+  { x: 100, y: 1450, width: 420, height: 900, name: 'WATCH / 01' },
+  { x: 1050, y: 1450, width: 420, height: 900, name: 'WATCH / 02' }
+];
+for (const tower of watchTowers) {
+  for (let floor = 0; floor < 3; floor++) {
+    const bottom = tower.y + tower.height - floor * 300;
+    addPlatform(tower.x, bottom - 300, tower.width, 14, 'one-way', '#8b9da5');
+    for (let step = 0; step < 20; step++) {
+      let x = tower.x + 20 + step * 18;
+      if (floor % 2 === 1) x = tower.x + 374 - step * 18;
+      // Stair treads allow walking up small rises as well as jumping through.
+      platforms.push({ x, y: bottom - (step + 1) * 15,
+        width: 26, height: 5, type: 'one-way', color: '#a3b1b7', isStair: true });
+    }
+  }
+  addPlatform(tower.x - 6, tower.y - 130, tower.width + 12, 12, 'solid', '#687c86');
+}
+
 // Reset object state in place so physics keeps the same array references.
 export function resetMap() {
   for (const barrel of explosiveBarrels) {
@@ -120,11 +140,15 @@ function drawBackground(ctx, camera) {
   for (const zone of zones) {
     if (zone.x > camera.x + camera.width || zone.x + zone.width < camera.x) continue;
     ctx.fillStyle = zone.color;
-    ctx.fillRect(zone.x, 0, zone.width, 1150);
+    ctx.fillRect(zone.x, 0, zone.width, world.height - 50);
     ctx.fillStyle = '#ffffff24';
     ctx.font = 'bold 26px monospace';
-    ctx.fillText(zone.name, zone.x + 60, 140);
+    ctx.fillText(zone.name, zone.x + 60, 140 + terrainOffsetY);
   }
+
+  // Keep background structures aligned with the shifted terrain.
+  ctx.save();
+  ctx.translate(0, terrainOffsetY);
 
   // Runway markings leave the airspace visually open.
   for (let x = 40; x < 1600; x += 160) {
@@ -170,6 +194,66 @@ function drawBackground(ctx, camera) {
     ctx.lineTo(x + 110, 670);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+function drawWatchTowers(ctx) {
+  for (const tower of watchTowers) {
+    const ground = tower.y + tower.height;
+    // Slim columns, footings, and cross bracing give the structure depth.
+    for (const x of [tower.x + 8, tower.x + tower.width - 20]) {
+      ctx.fillStyle = '#34454f';
+      ctx.fillRect(x, tower.y - 130, 12, tower.height + 130);
+      ctx.fillStyle = '#8b9da5';
+      ctx.fillRect(x, tower.y - 130, 3, tower.height + 130);
+      ctx.fillStyle = '#56636a';
+      ctx.fillRect(x - 10, ground - 12, 32, 12);
+    }
+    for (let floor = 0; floor < 3; floor++) {
+      const bottom = ground - floor * 300;
+      const top = bottom - 300;
+      line(ctx, tower.x + 24, bottom - 15, tower.x + 394, top + 20, '#3e515b', 3);
+      line(ctx, tower.x + 394, bottom - 15, tower.x + 24, top + 20, '#3e515b', 3);
+      // Side rails follow each flight; the slender treads remain collision geometry.
+      let startX = tower.x + 20;
+      let endX = tower.x + 400;
+      if (floor % 2 === 1) { startX = tower.x + 400; endX = tower.x + 20; }
+      line(ctx, startX, bottom - 8, endX, top - 8, '#647b87', 7);
+      line(ctx, startX, bottom - 48, endX, top - 48, '#a8bbc3', 2);
+      for (let post = 0; post <= 5; post++) {
+        // Interpolate evenly spaced handrail uprights along the stairs.
+        const x = startX + (endX - startX) * post / 5;
+        const y = bottom - 300 * post / 5;
+        line(ctx, x, y - 8, x, y - 48, '#8299a3', 2);
+      }
+      line(ctx, tower.x, top - 38, tower.x + tower.width, top - 38, '#9fb2ba', 2);
+      for (let x = tower.x + 8; x < tower.x + tower.width; x += 56) {
+        line(ctx, x, top, x, top - 38, '#647d87', 2);
+      }
+      ctx.fillStyle = '#d6e3de';
+      ctx.font = '11px monospace';
+      ctx.fillText('0' + (floor + 1), tower.x + 12, top + 32);
+    }
+    // A tinted panoramic cabin crowns the top floor, with an open side doorway.
+    ctx.fillStyle = '#73b8c32b';
+    ctx.fillRect(tower.x + 24, tower.y - 116, tower.width - 88, 104);
+    for (let x = tower.x + 24; x < tower.x + tower.width - 60; x += 68) {
+      line(ctx, x, tower.y - 116, x, tower.y - 12, '#92aeb5', 3);
+      line(ctx, x + 8, tower.y - 100, x + 40, tower.y - 72, '#bce2e133', 2);
+    }
+    ctx.fillStyle = '#24363e';
+    ctx.fillRect(tower.x + 140, tower.y - 32, 120, 20);
+    ctx.fillStyle = '#87d5bc';
+    ctx.fillRect(tower.x + 154, tower.y - 26, 30, 6);
+    ctx.fillStyle = '#d7e1d6';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(tower.name, tower.x + 145, tower.y - 142);
+    // Antenna and beacon add a clear silhouette against the open airspace.
+    line(ctx, tower.x + 70, tower.y - 130, tower.x + 70, tower.y - 205, '#8ea4ad', 3);
+    line(ctx, tower.x + 48, tower.y - 182, tower.x + 92, tower.y - 182, '#8ea4ad', 2);
+    ctx.fillStyle = '#f08d66';
+    ctx.fillRect(tower.x + 66, tower.y - 210, 8, 5);
+  }
 }
 
 export function drawMap(ctx, camera) {
@@ -177,13 +261,14 @@ export function drawMap(ctx, camera) {
   // All assets use world coordinates; translate once for the camera.
   ctx.translate(-camera.x, -camera.y);
   drawBackground(ctx, camera);
+  drawWatchTowers(ctx);
   for (const platform of platforms) {
     if (!isVisible(platform, camera)) continue;
     ctx.fillStyle = platform.color;
     ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
     ctx.fillStyle = '#ffffff30';
     ctx.fillRect(platform.x, platform.y, platform.width, 3);
-    if (platform.type === 'one-way') {
+    if (platform.type === 'one-way' && !platform.isStair) {
       for (let x = platform.x + 6; x < platform.x + platform.width - 6; x += 18) {
         ctx.fillStyle = '#172329';
         ctx.fillRect(x, platform.y + 6, 9, 3);

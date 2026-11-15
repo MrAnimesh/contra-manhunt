@@ -67,6 +67,26 @@ export function updatePlayer(player, input, dt) {
   if (boundedX !== player.x) player.vx = 0;
   player.x = boundedX;
 
+  // Follow nearby treads both uphill and downhill instead of falling between steps.
+  if (player.standingOn && player.vy >= 0 && !player.ignoredPlatform) {
+    const feet = player.y + player.height;
+    const wasOnStairs = player.standingOn.isStair;
+    let stairSupport = null;
+    for (const platform of platforms) {
+      // From a stair, also allow a small step onto its adjoining floor.
+      if (!platform.isStair && !wasOnStairs) continue;
+      if (Math.abs(feet - platform.y) > 16) continue;
+      if (player.x + player.width <= platform.x || player.x >= platform.x + platform.width) continue;
+      // Choose the highest reachable tread, independent of platform array order.
+      if (!stairSupport || platform.y < stairSupport.y) stairSupport = platform;
+    }
+    if (stairSupport) {
+      player.y = stairSupport.y - player.height;
+      player.vy = 0;
+      player.standingOn = stairSupport;
+    }
+  }
+
   // Apply gravity using seconds; a small fixed step prevents thin-floor tunneling.
   const previousBottom = player.y + player.height;
   player.vy += physics.gravity * dt;

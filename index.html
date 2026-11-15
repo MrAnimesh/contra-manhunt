@@ -54,18 +54,22 @@ import { particles, updateAndDrawParticles } from './src/particles.js';
 const canvas = document.getElementById('game');
 const context = canvas.getContext('2d');
 const camera = { x: 0, y: 600, width: 800, height: 600 };
-const player = { x: 300, y: 1110, width: 24, height: 40, vx: 0, vy: 0, standingOn: null, ignoredPlatform: null };
+const player = { x: 560, y: world.height - 90, width: 24, height: 40, vx: 0, vy: 0, standingOn: null, ignoredPlatform: null };
 const input = {};
 
 function resizeCanvas() {
   const container = canvas.parentElement;
   const pixelRatio = window.devicePixelRatio || 1;
-  // Fit the 800 × 600 logical viewport inside the fullscreen border, without stretching.
-  const scale = Math.min(container.clientWidth / camera.width, container.clientHeight / camera.height);
-  canvas.style.width = camera.width * scale + 'px';
-  canvas.style.height = camera.height * scale + 'px';
-  canvas.width = Math.round(camera.width * scale * pixelRatio);
-  canvas.height = Math.round(camera.height * scale * pixelRatio);
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  // Fill the frame; wider windows reveal more of the arena without stretching it.
+  const scale = Math.max(1, width / world.width, height / world.height);
+  camera.width = width / scale;
+  camera.height = height / scale;
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  canvas.width = Math.round(width * pixelRatio);
+  canvas.height = Math.round(height * pixelRatio);
   context.setTransform(canvas.width / camera.width, 0, 0, canvas.height / camera.height, 0, 0);
   centerCamera();
 }
@@ -81,8 +85,8 @@ window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 function resetPlayer() {
-  player.x = 300;
-  player.y = 1110;
+  player.x = 560;
+  player.y = world.height - 50 - player.height;
   player.vx = 0;
   player.vy = 0;
   player.standingOn = null;
